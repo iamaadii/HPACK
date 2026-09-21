@@ -1,0 +1,14 @@
+{
+  "name": "hpack-explorer",
+  "version": "1.0.0",
+  "description": "Interactive HPACK / HTTP/2 Header Compression Explorer and Visualizer",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test tests/hpack.test.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
