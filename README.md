@@ -1,141 +1,172 @@
-# ⚡ HPACK / HTTP/2 Explorer
+<div align="center">
 
-> An interactive, visual tool to see how HTTP/2 turns large, repetitive web headers into tiny single-byte numbers and bits.
+# ⚡ HPACK Explorer
+Interactive HTTP/2 Header Compression (RFC 7541) Engine & Bit-Level Visualizer.
 
-![HTTP/2](https://img.shields.io/badge/HTTP%2F2-RFC_7541-6366f1)
-![Node.js](https://img.shields.io/badge/Node.js-v20+-10b981)
-![Tests](https://img.shields.io/badge/Tests-8%2F8_Passed-06b6d4)
-![License](https://img.shields.io/badge/License-MIT-f59e0b)
+[Demo](#demo) • [What is this?](#what-is-this) • [Features](#features) • [Tech Stack](#tech-stack) • [Architecture](#architecture) • [Getting Started](#getting-started) • [Usage](#usage)
 
----
+</div>
 
-## 💡 What is HPACK? (The Simple Idea)
+<br>
 
-Imagine you and a friend send notes to each other all day.
+## Demo
+![alt text](screencapture-localhost-3000-2026-09-22-15_50_13.png)
+<br>
 
-Instead of writing out long, repeated sentences like:
-> *"I would like to order a large coffee with oat milk"*
+## What is this?
+Whenever you browse the web, your browser transmits repetitive HTTP headers like `User-Agent`, `Cookie`, and `:method` on every single click. In HTTP/1.1, these were sent as redundant plain text strings, wasting network bandwidth. **HPACK (RFC 7541)** is the binary compression algorithm behind HTTP/2 that collapses these repeated headers into compact, single-byte index lookups and Huffman bitstreams, eliminating up to 85%+ of header network overhead.
 
-You both agree on a **numbered notebook (dictionary)**:
-- **#1** = "coffee"
-- **#2** = "GET"
-- **#3** = "https"
+<br>
 
-When you want to say that, you just send the number **2**. One tiny number replaces a whole sentence!
+## Features
+✅ **Zero-Dependency RFC 7541 Implementation:** Native JavaScript codecs for variable-length integers (Section 5.1), static/dynamic dictionaries, and canonical Huffman coding (Appendix B).  
+✅ **Interactive Bit-Level Visualizer:** Color-coded binary breakdowns highlighting prefix bits, table indices, string lengths, and the Huffman `H-bit`.  
+✅ **Stateful Dynamic Dictionary (Index 62+):** Real-time tracking of learned headers with bounded 4096-byte memory limits and automated FIFO eviction using RFC overhead rules (`name + value + 32 bytes`).  
+✅ **Dual Engine Execution:** Runs entirely client-side in the browser for zero-latency, offline inspection, and is backed by a Node.js Express REST API (`/api/encode`, `/api/decode`).  
+✅ **Automated RFC Test Suite:** 8 test suites validating official RFC 7541 Appendix C test vectors and 100% lossless roundtrip decoding.
 
-That is **HPACK**. It turns long header text into small numbers and bits so websites load much faster.
+<br>
 
----
+## Tech Stack
+| Layer | Tech |
+| :--- | :--- |
+| **Backend** | Node.js (ES Modules), Express.js |
+| **Frontend** | Vanilla JavaScript (ES6+), Modern HTML5, Custom CSS3 (Dark Glassmorphic UI) |
+| **Protocol / Standard** | HTTP/2 HPACK (RFC 7541) |
+| **Algorithms** | Canonical Huffman Prefix Tree, Variable-Length Integer Codec, Sliding-Window FIFO Eviction |
+| **Testing** | Node.js Built-in Test Runner (`node:test`) |
 
-## 🚦 The 3 HPACK Rules (Cases)
+<br>
 
-Every time you send a header, HPACK picks one of three simple rules:
+## Architecture
 
-| Rule | Meaning | Example | Wire Result |
-| :--- | :--- | :--- | :--- |
-| 🟢 **Case 1: Indexed** | Already in the dictionary! | `:method: GET` is entry #2 | Sends just **1 single byte** (`0x82`). |
-| 🔵 **Case 2: Incremental Indexing** | New header—learn it for later! | `:authority: www.example.com` | Sends the letters now, but saves them into **Index 62**. Next time, it only costs **1 byte**! |
-| 🟠 **Case 3: Without Indexing** | Send once, don't save. | One-time token or secret password | Sent as text, but **not** stored in memory. |
+```
+                                  ┌──> [Case 1: Exact Match] ────────> Emit 1-byte index (0x80 | idx)
+                                  │
+Header Input ──> Lookup Table ───┼──> [Case 2: New/Modified Header] ─> Emit literal + Save to Index 62
+                                  │
+                                  └──> [Case 3: Ephemeral/Sensitive] ─> Emit literal, do NOT index
+                                                  │
+                                                  ▼
+                                       [Huffman Encoder (H-Bit)]
+                                                  │
+                                                  ▼
+                                       [Lossless HPACK Decoder]
+                                                  │
+                                                  ▼
+                                  [Interactive Bit & Stats UI]
+```
 
----
+When headers are submitted, the engine parses each key-value pair and scans the **Static Table** (indices 1–61) followed by the **Dynamic Table** (indices 62+). If an exact match is found (**Case 1**), it emits a 1-byte wire index; if new, it encodes the field and registers it to index 62 in the Dynamic Table (**Case 2**); sensitive or one-off headers bypass indexing (**Case 3**). Literals are optionally packed via the 257-symbol canonical Huffman tree, assembled into raw wire bytes, and piped into the decoder to confirm 100% lossless roundtrip fidelity before rendering real-time bit breakdowns.
 
-## 📚 The Two Dictionaries (Tables)
+<br>
 
-### 1. Static Table (Indices 1 to 61)
-- Built into every browser and server.
-- Contains the 61 most common web headers (like `:method: GET`, `:status: 200`, `content-type`).
-- Never changes.
+## What's implemented
+- [x] **Case 1 — Indexed Header Field** (`0x80 | index`)
+- [x] **Case 2 — Literal with Incremental Indexing (Indexed Name)** (`0x40 | index`)
+- [x] **Case 3 — Literal with Incremental Indexing (New Name)** (`0x40 0x00 ...`)
+- [x] **Case 3 — Literal without Indexing** (`0x00 ...` ephemeral fields)
+- [x] **RFC 7541 Appendix A Static Table** (all 61 standard HTTP/2 predefined headers)
+- [x] **Bounded Dynamic Table** (FIFO eviction, size calculation with 32-byte overhead per entry)
+- [x] **Canonical Huffman Coding** (Appendix B 257-symbol binary prefix tree, EOS padding alignment)
+- [x] **Variable-Length Integer Codec** (Section 5.1 arbitrary prefix bit packing & continuation bytes)
+- [ ] **Case 4 — Dynamic Table Size Update** (`0x20 | max-size`, noted as future work)
+- [ ] **Never-Indexed Literal Representation** (`0x10 | index`, sensitive credential flag, noted as future work)
 
-### 2. Dynamic Table (Indices 62 and above)
-- Starts empty.
-- When new headers arrive with **Case 2**, they get stored starting at **index 62**.
-- When new ones are added, older ones move to #63, #64, etc.
-- **Removing the oldest (FIFO):** If memory gets full, the oldest header at the bottom gets thrown away to make room for new ones.
+<br>
 
----
+## Getting Started
 
-## 🗜️ Huffman Coding: What Does the Switch Do?
+### Prerequisites
+- **Node.js v18+** installed on your system.
 
-* **Huffman OFF:** Words are sent as normal letters (1 letter = 8 bits = 1 byte).
-* **Huffman ON:** Uses the pre-calculated **RFC 7541 Appendix B tree**. Frequent letters (like `e`, `a`, `/`, `0`) shrink down to **5 or 6 bits**, saving an extra **20% to 35%** of bandwidth!
-
----
-
-## 🌐 Networking Deep Dive: Why is HPACK Needed?
-
-### 1. The HTTP/1.1 Problem: Header Bloat
-When your browser opens a modern webpage, it downloads **80 to 150 separate files** (images, CSS styles, JavaScript, API calls).
-* In **HTTP/1.1**, every single request re-sent 500 to 2,000 bytes of duplicate text headers (`User-Agent`, `Cookie`, `Authorization`).
-* That wasted **100 KB to 200 KB of pure header data** per page view!
-* On mobile networks (4G/5G), this caused slow page loads due to **TCP Slow Start** and multiple round-trip delays (RTT).
-
-### 2. Why Not Just Use GZIP? (The CRIME Attack)
-In 2012, researchers proved that compressing headers with standard GZIP/Deflate allowed hackers to spy on packet sizes and steal private cookies (**CRIME attack**). 
-The IETF designed **HPACK (RFC 7541)** specifically to be fast, table-based, and immune to this attack.
-
-### 3. Where is HPACK Used Today?
-- **Web Browsers:** Chrome, Safari, Edge, and Firefox use it on all HTTP/2 traffic.
-- **Microservices & gRPC:** Google's gRPC runs over HTTP/2 and uses HPACK to avoid wasting CPU and bandwidth on high-frequency API calls.
-- **Edge CDNs:** Cloudflare, AWS CloudFront, and Fastly use HPACK to serve millions of users at the edge.
-
----
-
-## 🚀 Quick Start
-
-### 1. Install dependencies
+### Installation
 ```bash
+git clone https://github.com/iamaadii/HPACK.git
+cd HPACK
 npm install
 ```
 
-### 2. Start the server
+### Run locally
 ```bash
 npm start
 ```
+Visit **`http://localhost:3000`** in your browser.
 
-### 3. Open in your browser
-Go to: **[http://localhost:3000](http://localhost:3000)**
-
----
-
-## 🎮 How to Try It Out in the UI
-
-1. **Preset 1 (Initial Request):**
-   - Click the preset dropdown and choose **1. Initial Request**.
-   - Click **Encode & Send Headers**.
-   - Notice that `:method: GET` used **Case 1** (1 byte), and `:authority: www.example.com` used **Case 2** and got saved to **Index 62** in the table on the left.
-
-2. **Preset 2 (Subsequent Request - The "Aha!" moment):**
-   - Choose **2. Subsequent Request**.
-   - Click **Encode & Send Headers**.
-   - Notice that `:authority: www.example.com` is already in Index 62, so it now uses **Case 1** and takes **only 1 single byte (`0xBE`)** instead of 26 bytes!
-
-3. **Check the Bits & Decoder:**
-   - Look at the color-coded bits under each header card.
-   - Look at the bottom right card to verify that the decoder reconstructed the exact headers with **100% lossless match**.
-
----
-
-## 🧪 Running the Automated Tests
-
-To run the RFC 7541 unit test suite:
-
+### Run Tests
 ```bash
 npm test
 ```
 
-All 8 test suites will pass:
-```text
-✔ 1. Static Table has 61 entries and accurate lookups
-✔ 2. RFC 7541 Integer Codec - Appendix C.1 Examples
-✔ 3. Case 1: Indexed Header Field encode and decode
-✔ 4. Cases 2 and 3 with plain text (Huffman OFF)
-✔ 5. Dynamic table adds from 62 and shifts / evicts oldest when full
-✔ 6. Sequential requests: Dynamic table entry referenced via Case 1 in next request
-✔ 7. Huffman Coding encode and decode roundtrip
-✔ 8. Full HPACK Request with mixed Case 1, Case 2 with Huffman ON and OFF
+<br>
+
+## Usage
+
+```javascript
+import { HpackContext } from './lib/hpack.js';
+
+// Initialize context with Huffman compression enabled
+const encoder = new HpackContext({ useHuffman: true });
+const decoder = new HpackContext({ useHuffman: true });
+
+// 1. Encode headers
+const headers = [
+  { name: ':method', value: 'GET' },
+  { name: ':scheme', value: 'https' },
+  { name: ':path', value: '/index.html' },
+  { name: ':authority', value: 'example.com' }
+];
+
+const encoded = encoder.encode(headers);
+console.log('Hex wire format:', encoded.hex);
+console.log('Total bytes:', encoded.totalBytes);
+
+// 2. Decode wire bytes losslessly
+const decoded = decoder.decode(encoded.bytes);
+console.log('Reconstructed headers:', decoded.headers);
 ```
 
----
+<br>
 
-## 📖 Further Reading
-For a detailed guide explaining the project structure, how each file works, and the complete data flow, see [PROJECT_GUIDE.md](PROJECT_GUIDE.md).
+## Benchmarks (Compression Efficiency)
+| Scenario | HTTP/1.1 Raw Size | HPACK Wire Size | Reduction |
+| :--- | :--- | :--- | :--- |
+| **Initial Request (Cold Dynamic Table)** | 103 Bytes | 27 Bytes | **73.8%** |
+| **Subsequent Request (Dynamic Table Hit)** | 103 Bytes | 5 Bytes | **95.1%** |
+| **Sequential Stream (High Repetition)** | 1,240 Bytes | 186 Bytes | **85.0%** |
+
+<br>
+
+## Folder Structure
+```text
+HPACK/
+├── lib/
+│   ├── dynamicTable.js     # Learning dictionary, LRU/FIFO eviction & size tracking
+│   ├── hpack.js            # Core encoder/decoder orchestrator & case decider
+│   ├── huffmanCodec.js     # Canonical Huffman binary tree encoder & decoder
+│   ├── huffmanTable.js     # 257 canonical Huffman symbol definitions (RFC 7541)
+│   ├── integerCodec.js     # Variable-length N-bit prefix integer packer/unpacker
+│   └── staticTable.js      # 61 predefined HTTP/2 static header entries
+├── public/
+│   ├── app.js              # In-browser HPACK engine, interactive UI & live visualizer
+│   ├── index.html          # Clean structure, preset selector & bit breakdown cards
+│   └── style.css           # Glassmorphic dark theme & responsive layout
+├── tests/
+│   └── hpack.test.js       # 8 automated test suites verifying RFC 7541 compliance
+├── PROJECT_GUIDE.md        # Comprehensive concept & architectural guide
+├── server.js               # Express server and stateless /api endpoints
+├── package.json
+└── README.md
+```
+
+<br>
+
+## What I learned / Challenges
+Implementing arbitrary bitwise operations in JavaScript without native 64-bit integer bit-shifting issues was a major takeaway, especially streaming bits across byte boundaries during Huffman encoding. Another critical challenge was implementing the exact RFC 7541 Dynamic Table sliding window—computing entry overhead (`name.length + value.length + 32 bytes`) and keeping indices dynamically synchronized across encoder and decoder states during FIFO evictions.
+
+<br>
+
+## Future Improvements
+- [ ] Implement Case 4 (Dynamic Table Size Update signaling)
+- [ ] Implement Never-Indexed Literal representation (`0x10 | index`) for sensitive headers
+- [ ] Add interactive HTTP/2 frame multiplexing simulation
